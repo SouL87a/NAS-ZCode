@@ -6,81 +6,97 @@
 - 登录态与工作区保存在 NAS 上，手机 / 平板 / 电脑共用一份
 - **非 Docker**：原生 Node.js 运行，复用应用中心的 **Node.js v22**（`install_dep_apps` 自动装）
 - **一个包同时支持 x86_64 与 arm64**（`platform = all`，原生模块用官方预编译件）
-- 基于 ZCode 官方 Web 运行时（`zcode --web`），与桌面版共用同一套前端组件
+- **双入口**：飞牛统一网关（桌面图标）+ 端口直连（访问令牌）
+- 基于 ZCode 官方 Web 运行时，与桌面版共用同一套前端组件
 
-> 本仓库只做 NAS 侧的移植与打包，不修改 ZCode 本身。上游代码：[zai-org/ZCode](https://github.com/zai-org/ZCode)（Apache-2.0）。开发者：Z.ai；飞牛移植 / 打包 / 发布：[Kasbuky-sudo](https://github.com/Kasbuky-sudo)。
+> 本仓库只做 NAS 侧的移植与打包，不修改 ZCode 本身。上游：[zai-org/ZCode](https://github.com/zai-org/ZCode)（Apache-2.0）。
 
 ## 安装
 
-1. 在飞牛应用中心先安装（或随本应用自动装上）**Node.js v22** 运行时；
-2. 从 [Releases](https://github.com/Kasbuky-sudo/NAS-ZCode/releases) 下载 `zcode-<版本>.fpk`；
-3. 应用中心 → 手动安装 → 选择 fpk 文件；
-4. 安装完成后从桌面图标打开（iframe 内嵌）。
+1. 应用中心安装（或随包自动装）**Node.js v22**
+2. 从 [Releases](../../releases) 下载 `zcode-<版本>.fpk`（不要用 Artifact 的 zip）
+3. 应用中心 → 手动安装 → 选择 fpk
+4. 从**桌面图标**打开，或浏览器访问 `http://NAS_IP:8988`
 
-端口默认 **8988**。首个飞牛版本需要真机验收，请先在测试设备安装。
+## 双入口
+
+| 入口 | 地址 | 鉴权 |
+|---|---|---|
+| **统一网关**（推荐） | 飞牛桌面图标 → `/app/zcode` | 飞牛 NAS 登录态；打开即可用 |
+| **端口直连** | `http://NAS_IP:8988` | 访问令牌登录框（令牌**不进地址栏**） |
+
+- 网关请求由 `gateway-proxy` 识别 `X-Trim-*` 身份后注入令牌，桌面免手输
+- 端口访问先弹登录框，输入令牌后由服务端下发 **HttpOnly** cookie
+- 请**勿**将 8988 映射到公网
 
 ## 访问令牌（重要）
 
-ZCode Web 等于把一个能执行命令的 AI agent 和终端开在 8988 端口上，所以带访问令牌：
+ZCode Web 等于把能执行命令的 AI agent + 终端开在 NAS 上，访问令牌是端口入口的唯一屏障：
 
-- **安装时**向导会要求填一个「访问令牌」（随便一串 8-64 位字母数字即可；也可留空由系统生成随机值）。
-- 桌面图标**自动携带**该令牌：fnOS 把向导值替换进入口路径（`/<令牌>`），页面加载后自动种鉴权 cookie，点开即用，平时无需手输。
-- 想换令牌：应用中心 → 已安装 → ZCode → 应用设置 → 改「访问令牌」→ 重启应用。
-- 令牌机制说明：服务端只对 `/ws`、`/ws/*`、`/api/*` 鉴权（静态页放行），鉴权同时接受 `?token=` 与 `zcode_lite_token` cookie；打包时给 `web/index.html` 注入了一小段脚本，把入口路径里的令牌写进该 cookie，因此面板 iframe 与直接访问都可用。
+- **安装向导**要求填写「访问令牌」：**至少 16 位**随机字母/数字/下划线/中划线（勿用常见词、生日）
+- 修改：应用中心 → ZCode → 应用设置 → 访问令牌 → **重启应用**
+- 服务端对 `/ws`、`/ws/*`、`/api/*` 鉴权（静态页放行）；接受 `?token=` 或 cookie `zcode_lite_token`
+- **旧版短令牌**（8–15 位）升级后无法在登录框提交，请到应用设置重设为 ≥16 位
 
-> 注意：飞牛的面板入口**会丢弃 URL 查询串**，所以不能用 `/?token=…` 的形式，只能把令牌放在路径里。
+## 安全说明
+
+- 端口令牌**不在 URL 路径**中（不进浏览器历史/截图）
+- 登录成功使用服务端 **HttpOnly** cookie
+- 网关 Unix Socket 仅对带飞牛会话身份（`X-Trim-*`）的请求注入令牌
+- 令牌经环境变量传给服务端（不出现在进程命令行）
+- 以专用包用户运行（`run-as: package`，非 root）
+- 建议：仅在可信局域网使用；强随机令牌；不暴露公网
 
 ## 工作区
 
-应用安装后会创建共享目录 `zcode/workspace` 作为默认工作区（文件管理器可见）。让 ZCode 操作已有目录（如某个共享文件夹）时，在「应用中心 → 已安装 → ZCode → 设置 → 访问权限」添加授权目录，然后重启应用。
+安装后创建共享目录 `zcode/workspace` 作为默认工作区。要操作其它目录：应用中心 → ZCode → 设置 → 访问权限 → 添加授权目录 → 重启。
+
+## 构建
+
+```bash
+# 1) 准备官方 runtime：zcode-<ver>.tar.gz
+#    clone zai-org/ZCode，Node 24.14.0 + pnpm 10.33.2
+#    pnpm install --frozen-lockfile && pnpm typecheck
+#    node scripts/build-zcode.mjs --base-url http://127.0.0.1/zcode/
+#    或使用本仓库 GitHub Actions 的 runtime artifact
+
+# 2) 打 fpk
+bash packaging/fnOS/scripts/build.sh --runtime /path/to/zcode-<ver>.tar.gz
+```
+
+### 发版流程
+
+| 动作 | 结果 |
+|---|---|
+| `git push origin main` / `test/*` | 只构建 Artifacts，**不发 Release** |
+| 验证通过后 `git tag v3.14.x && git push origin v3.14.x` | 自动构建并发布 Release（含 changelog） |
+| Actions → Run workflow → 勾选 publish_release | 同上 |
 
 ## 与桌面版的差异
 
 | | 桌面版 | NAS 版 |
 |---|---|---|
-| 界面 | Electron 窗口 | 浏览器 / 飞牛桌面 iframe（同一套前端组件） |
+| 界面 | Electron 窗口 | 浏览器 / 飞牛桌面 iframe |
 | 终端 | 本机 node-pty | 服务端 node-pty（浏览器内） |
 | 浏览器自动化 | 内置 | 不可用（NAS 无桌面 Chromium） |
 | 配置与凭据 | 本机用户目录 | NAS 应用数据目录（升级保留） |
-
-## 构建
-
-```bash
-# 1. 获取官方 Web 运行时包（zcode-<ver>.tar.gz）：
-#    a) GitHub Actions：本仓库 push 后自动构建（upstream.version 钉住上游版本）
-#    b) 本地构建上游：clone zai-org/ZCode，Node 24.14.0 + pnpm 10.33.2
-#       pnpm bootstrap && pnpm build:zcode --base-url http://127.0.0.1/zcode/
-#       产物在 dist/zcode/releases/<ver>/zcode-<ver>.tar.gz
-#    把 tar.gz 放到 packaging/fnOS/dist/runtime/
-
-# 2. 打 fpk（Windows Git Bash / Linux 均可，需 fnpack）
-bash packaging/fnOS/scripts/build.sh
-# 产物：packaging/fnOS/dist/zcode-<ver>.fpk
-```
-
-也可以指定运行时包路径：`bash packaging/fnOS/scripts/build.sh --runtime /path/to/zcode-3.14.1.tar.gz`。
-
-验收变体：`DEP_APPS=none bash packaging/fnOS/scripts/build.sh ...` 会剥离 manifest 里的
-`install_dep_apps` 声明（产物名带 `-nodep` 后缀）。用途：Node 运行时已装好时，绕过
-App Center 对「声明依赖的本地 fpk」的拦截，便于 trim-cli 自动化安装验收——正式分发请用
-默认变体（带依赖声明，新装用户会自动装上 Node.js v22）。
 
 ## 目录结构
 
 ```
 packaging/fnOS/
-├── manifest              # 应用元信息（platform=all、nodejs_v22 依赖、端口 8988）
-├── cmd/                  # 生命周期脚本（main / install / upgrade / uninstall / config）
-├── config/               # privilege（run-as: package）与 resource（工作区共享目录）
-├── ui/config             # 飞牛桌面入口（iframe → :8988）
-├── ui-images/            # 图标（取自 ZCode 官方桌面版资源）
-└── scripts/build.sh      # 解包官方 runtime → 组装 stage → fnpack 打包
-.github/workflows/build.yml  # 自动构建官方 runtime 并产出 fpk
-upstream.version             # 钉住的 ZCode 版本
+├── manifest              # 应用元信息
+├── cmd/                  # 生命周期脚本
+├── config/               # privilege / resource
+├── ui/config             # 桌面入口（统一网关）
+├── scripts/
+│   ├── build.sh          # 打包 fpk
+│   ├── gateway-proxy.mjs # Unix Socket 网关适配
+│   └── inject-entry-token.py  # 端口登录门禁
+└── wizard/               # 安装向导（访问令牌）
 ```
 
 ## 许可
 
-- ZCode：[Apache-2.0](https://github.com/zai-org/ZCode/blob/main/LICENSE)（© Z.ai）
-- 本仓库的移植与打包脚本：Apache-2.0
-- 图标来自 ZCode 官方桌面版资源，版权归 Z.ai 所有
+- ZCode：Apache-2.0（© Z.ai）
+- 本仓库移植与打包脚本：Apache-2.0

@@ -99,7 +99,7 @@ find_node() {
 ### 令牌合法性（纵深防御 L5）：向导 pattern 之外脚本内再校验，避免拼进 shell
 validate_token() {
     local t="$1"
-    printf '%s' "${t}" | grep -Eq '^[A-Za-z0-9_-]{8,64}$'
+    printf '%s' "${t}" | grep -Eq '^[A-Za-z0-9_-]{16,64}$'
 }
 
 ensure_token() {

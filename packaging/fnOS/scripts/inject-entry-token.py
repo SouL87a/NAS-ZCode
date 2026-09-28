@@ -2,14 +2,16 @@
 """给 web/index.html 注入移动端友好的「访问令牌」登录门禁。
 
 安全要点：
-- 无 cookie 立即显示登录框（不做先探测空等）
+- 始终先探测 /api/server-info（HttpOnly cookie 对 JS 不可见，不能靠 document.cookie 分支）
 - 校验用 GET /api/server-info?token=...，由服务端 Set-Cookie（HttpOnly）
-  —— 不再用 document.cookie 写令牌（修复 L2）
 - 失败冷却限速（客户端软限速）
 - 适配手机：safe-area、触控、小屏
 
 统一网关：gateway-proxy 仅对带 X-Trim-* 的网关请求注入令牌，
 浏览器侧探测 200 会直接进入，不弹框。
+
+令牌长度与服务端对齐（8–64）：兼容旧包升级留下的短令牌；
+新装向导仍建议 ≥16。
 """
 
 from __future__ import annotations
@@ -57,7 +59,7 @@ SNIPPET = (
     "if(now<wait){msg.style.color='#f87171';msg.textContent='请 '+Math.ceil((wait-now)/1000)+' 秒后再试';return;}"
     "var v=(inp.value||'').trim();"
     "if(!v){msg.textContent='请输入访问令牌';return;}"
-    "if(v.length<16){msg.textContent='令牌至少 16 位';return;}"
+    "if(v.length<16){msg.textContent='令牌至少 16 位。若旧令牌不足 16 位，请到 应用中心 → ZCode → 应用设置 重设访问令牌';return;}"
     "msg.style.color='#94a3b8';msg.textContent='验证中…';btn.disabled=true;"
     "fetch('/api/server-info?token='+encodeURIComponent(v),{cache:'no-store',credentials:'same-origin'}).then(function(r){"
     "if(r.ok){location.reload();return;}"
