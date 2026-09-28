@@ -1,26 +1,11 @@
 #!/usr/bin/env python3
-"""给打包进 fpk 的 web/index.html 注入入口令牌脚本。
+"""给 web/index.html 注入「访问令牌」登录门禁。
 
-为什么需要：fnOS 面板入口 URL 会用向导值替换 ${wizard_path}，但它把该值当
-**路径**处理（实测查询串会被丢掉），所以不能写 `/?token=${wizard_path}`。
-改成 `/${wizard_path}`：入口路径本身就是令牌，页面加载后由本脚本把路径首段
-写进 `zcode_lite_token` cookie。
+端口访问不再把令牌放在 URL 路径（地址栏泄露）。
+打开 http://NAS:8988/ 时：先探测 /api/server-info →
+未通过则弹出登录框 → 输入令牌写 cookie → 校验通过后进入。
 
-服务端（entry-http.js）对 /ws、/ws/*、/api/* 的鉴权同时接受 cookie 与
-`?token=`，且是**从请求里取值比对**，因此：
-
-  面板 iframe → GET /<token>  → 注入脚本写 cookie
-             → fetch /api/server-info  ✓
-             → ws://host:8988/ws       ✓（浏览器自动带 cookie）
-
-⚠️ 必须**覆盖**已存在的旧 cookie，不能"有就跳过"：
-重装/换令牌后，浏览器里往往还留着上一版的 `zcode_lite_token`，跳过写入会让
-页面带着旧令牌握手 → /ws 401 → 前端显示「Web 启动失败 / WebSocket connection
-failed」。真机踩过这个坑（旧令牌残留在 cookie 里）。
-
-只把**单段路径**当成令牌，避免误伤应用自身的路由
-（如 /share/callback、/cn/share/callback 这些 OAuth 回跳路径），
-否则登录流程会被写坏。
+统一网关由 gateway-proxy 自动注入令牌，浏览器侧探测会直接通过，不弹框。
 """
 
 from __future__ import annotations
@@ -28,20 +13,77 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-MARKER = "zcode-fnos-entry-token"
+MARKER = "zcode-fnos-login-gate"
 
+# 同时承担：鉴权探测、登录 UI、cookie 写入
 SNIPPET = (
-    "<script>"
-    "/* " + MARKER + ": 用入口路径里的令牌刷新鉴权 cookie（含覆盖旧令牌）*/"
-    "(function(){try{"
-    "var p=location.pathname.replace(/^\\/+|\\/+$/g,'');"
-    "if(!p||p.indexOf('/')!==-1)return;"          # 仅单段路径才是令牌
-    "if(p==='share'||p==='cn'||p==='index.html')return;"
-    "var m=document.cookie.match(/(?:^|;\\s*)zcode_lite_token=([^;]*)/);"
-    "var cur=m?decodeURIComponent(m[1]):null;"
-    "if(cur===p)return;"
-    "document.cookie='zcode_lite_token='+encodeURIComponent(p)+'; path=/; SameSite=Lax';"
-    "}catch(e){}})();"
+    "<script>/* " + MARKER + " */"
+    "(function(){"
+    "if(window.__ZCODE_FNOS_LOGIN__)return;"
+    "window.__ZCODE_FNOS_LOGIN__=1;"
+    "var KEY='zcode_lite_token';"
+    "function cookieSet(v){"
+    "document.cookie=KEY+'='+encodeURIComponent(v)+'; path=/; SameSite=Lax';"
+    "}"
+    "function cookieClear(){document.cookie=KEY+'=; path=/; Max-Age=0';}"
+    "function el(tag,css){var e=document.createElement(tag);if(css)e.style.cssText=css;return e;}"
+    "function ensureRoot(){"
+    "var r=document.getElementById('zcode-fnos-login');"
+    "if(r)return r;"
+    "r=el('div','position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.92);font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e2e8f0');"
+    "r.id='zcode-fnos-login';"
+    "function mount(){(document.body||document.documentElement).appendChild(r);}"
+    "if(document.body)mount();else document.addEventListener('DOMContentLoaded',mount);"
+    "return r;"
+    "}"
+    "function showStatus(text){"
+    "var root=ensureRoot();root.innerHTML='';"
+    "var card=el('div','width:340px;padding:28px;border-radius:16px;background:#1e293b;border:1px solid #334155;text-align:center;font-size:13px;color:#94a3b8');"
+    "card.textContent=text||'正在验证访问权限…';"
+    "root.appendChild(card);"
+    "}"
+    "function showLogin(err){"
+    "var root=ensureRoot();root.innerHTML='';"
+    "var card=el('div','width:340px;padding:28px 28px 24px;border-radius:16px;background:#1e293b;border:1px solid #334155;box-shadow:0 18px 50px rgba(0,0,0,.45)');"
+    "var h=el('div','font-size:18px;font-weight:600;margin:0 0 8px');h.textContent='ZCode';"
+    "var s=el('div','font-size:13px;line-height:1.5;color:#94a3b8;margin-bottom:18px');s.textContent='请输入访问令牌以继续';"
+    "var inp=el('input','width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:14px;outline:none');"
+    "inp.type='password';inp.placeholder='访问令牌';inp.autocomplete='current-password';"
+    "var msg=el('div','min-height:18px;margin:10px 0 4px;font-size:12px;color:#f87171');"
+    "if(err)msg.textContent=err;"
+    "var btn=el('button','width:100%;margin-top:8px;padding:10px 12px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer');"
+    "btn.type='button';btn.textContent='进入';"
+    "card.appendChild(h);card.appendChild(s);card.appendChild(inp);card.appendChild(msg);card.appendChild(btn);"
+    "root.appendChild(card);"
+    "setTimeout(function(){try{inp.focus();}catch(e){}},0);"
+    "function submit(){"
+    "var v=(inp.value||'').trim();"
+    "if(!v){msg.textContent='请输入访问令牌';return;}"
+    "msg.style.color='#94a3b8';msg.textContent='验证中…';btn.disabled=true;"
+    "cookieSet(v);"
+    "check(true);"
+    "}"
+    "btn.onclick=submit;"
+    "inp.addEventListener('keydown',function(e){if(e.key==='Enter')submit();});"
+    "}"
+    "function removeGate(){"
+    "var g=document.getElementById('zcode-fnos-login');"
+    "if(g&&g.parentNode)g.parentNode.removeChild(g);"
+    "}"
+    "function check(afterSubmit){"
+    "fetch('/api/server-info',{cache:'no-store',credentials:'same-origin'}).then(function(r){"
+    "if(r.ok){cookieKeepHint();removeGate();if(afterSubmit)location.reload();return;}"
+    "if(afterSubmit){cookieClear();showLogin('令牌不正确或服务未就绪');return;}"
+    "showLogin('');"
+    "}).catch(function(){"
+    "if(afterSubmit)showLogin('无法连接服务，请稍后重试');else showLogin('');"
+    "});"
+    "}"
+    "function cookieKeepHint(){}"
+    "showStatus('正在验证访问权限…');"
+    "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){check(false);});"
+    "else check(false);"
+    "})();"
     "</script>"
 )
 
@@ -57,26 +99,26 @@ def main() -> int:
         return 1
 
     html = path.read_text(encoding="utf-8")
-    if MARKER in html:
-        # 已有旧版注入（可能有"跳过写入"的缺陷）：整体替换为最新片段
-        start = html.find("<script>/* " + MARKER)
-        end = html.find("</script>", start)
-        if start != -1 and end != -1:
-            html = html[:start] + SNIPPET + html[end + len("</script>"):]
-            path.write_text(html, encoding="utf-8", newline="\n")
-            print("[build] 已更新入口令牌脚本（覆盖旧版本注入）")
-            return 0
-        print("[build] 检测到标记但无法定位片段，保持原样")
-        return 0
 
+    # 移除历史版本注入（路径令牌 / 旧登录门禁）
+    for old in ("zcode-fnos-entry-token", "zcode-fnos-login-gate"):
+        while True:
+            start = html.find("<script>/* " + old)
+            if start == -1:
+                break
+            end = html.find("</script>", start)
+            if end == -1:
+                break
+            html = html[:start] + html[end + len("</script>") :]
+
+    inject = SNIPPET
     if "<head>" in html:
-        html = html.replace("<head>", "<head>" + SNIPPET, 1)
+        html = html.replace("<head>", "<head>" + inject, 1)
     else:
-        html = SNIPPET + html
+        html = inject + html
 
-    # 统一 LF：该文件在 Linux 上由服务端读取，不需要 CRLF
     path.write_text(html, encoding="utf-8", newline="\n")
-    print("[build] 已注入入口令牌脚本 → web/index.html")
+    print("[build] 已注入访问令牌登录门禁 → web/index.html")
     return 0
 
 
