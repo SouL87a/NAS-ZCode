@@ -13,6 +13,9 @@ TOKEN="${wizard_path:-${wizard_token:-}}"
 if [ -z "${TOKEN}" ]; then
     exit 0
 fi
+if ! printf '%s' "${TOKEN}" | grep -Eq '^[A-Za-z0-9_-]{8,64}$'; then
+    exit 0
+fi
 
 mkdir -p "${TRIM_PKGVAR}/etc"
 printf '%s' "${TOKEN}" > "${TRIM_PKGVAR}/etc/token"

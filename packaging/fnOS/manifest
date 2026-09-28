@@ -17,4 +17,4 @@ service_port          = 8988
 install_dep_apps      = nodejs_v22
 ctl_stop              = true
 checkport             = true
-changelog             = 双入口：统一网关（飞牛登录态）+ 端口 8988（访问令牌鉴权）并存；修复桌面/应用图标路径；网关代理自动注入令牌，面板打开无需手输。
+changelog             = 安全加固：网关仅对带 X-Trim-* 的会话注令牌；令牌改走环境变量不进 argv；向导令牌 ≥16 位；登录框用 ?token= 换 HttpOnly cookie；修复 CI 脚本注入。

@@ -4,7 +4,7 @@ name: build
 # Release：仅 tag v* 或手动勾选 publish_release 时才发（先验证再发版）
 on:
   push:
-    branches: [main]
+    branches: [main, "test/*", "feature/*"]
     tags: ["v*"]
     paths:
       - ".github/workflows/build.yml"
@@ -38,9 +38,10 @@ jobs:
         id: pin
         env:
           GH_TOKEN: ${{ github.token }}
+          REF_INPUT: ${{ github.event.inputs.zcode_ref }}
         run: |
-          if [ -n "${{ github.event.inputs.zcode_ref }}" ]; then
-            REF="${{ github.event.inputs.zcode_ref }}"
+          if [ -n "${REF_INPUT}" ]; then
+            REF="${REF_INPUT}"
           else
             REF="$(curl -fsSL -H "Authorization: token $GH_TOKEN" \
               "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/upstream.version")"
