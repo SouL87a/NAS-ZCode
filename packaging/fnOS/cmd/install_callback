@@ -38,7 +38,7 @@ else
     TOKEN="$(tr -dc 'A-Za-z0-9_-' < /dev/urandom | head -c 32)"
 fi
 # 纵深防御：脚本内再校验，禁止把非法值写盘/拼进 shell
-if ! printf '%s' "${TOKEN}" | grep -Eq '^[A-Za-z0-9_-]{8,64}$'; then
+if ! printf '%s' "${TOKEN}" | grep -Eq '^[A-Za-z0-9_-]{16,64}$'; then
     TOKEN="$(tr -dc 'A-Za-z0-9_-' < /dev/urandom | head -c 32)"
 fi
 printf '%s' "${TOKEN}" > "${TOKEN_FILE}"
