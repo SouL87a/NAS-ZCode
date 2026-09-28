@@ -12,3 +12,4 @@ Thumbs.db
 # Python 编译缓存（构建脚本用，切勿入库）
 __pycache__/
 *.pyc
+
