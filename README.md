@@ -10,7 +10,7 @@
 - 基于 ZCode 官方 Web 运行时，与桌面版共用同一套前端组件
 
 > 基于 [zai-org/ZCode](https://github.com/zai-org/ZCode)（Z.ai，Apache-2.0）
-> 参考了 [Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode) 的 fnOS 打包
+> 参考 [Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode) 的 fnOS 打包
 > 由 [SouL87](https://github.com/SouL87a) 维护本发行版。详见文末「维护与致谢」。
 
 ## 双入口
