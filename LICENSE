@@ -2,7 +2,9 @@ Apache License
 Version 2.0, January 2004
 http://www.apache.org/licenses/
 
-   Copyright 2026 Z.ai (ZCode upstream) / Kasbuky-sudo (fnOS packaging)
+   Copyright 2026 Z.ai (ZCode upstream)
+   Copyright 2026 Kasbuky-sudo (fnOS packaging)
+   Copyright 2026 SouL87 (fork maintenance: gateway, auth hardening, release CI)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

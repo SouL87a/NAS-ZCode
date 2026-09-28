@@ -9,7 +9,18 @@
 - **双入口**：飞牛统一网关（桌面图标）+ 端口直连（访问令牌）
 - 基于 ZCode 官方 Web 运行时，与桌面版共用同一套前端组件
 
-> 本仓库只做 NAS 侧的移植与打包，不修改 ZCode 本身。上游：[zai-org/ZCode](https://github.com/zai-org/ZCode)（Apache-2.0）。
+> **ZCode 本体**：Z.ai 开源（[zai-org/ZCode](https://github.com/zai-org/ZCode)，Apache-2.0）。  
+> **fnOS 移植打包**：起于 [Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode)（Apache-2.0）。  
+> **本仓库维护 / 发行**：[SouL87](https://github.com/SouL87a)——在原打包基础上增加统一网关、登录门禁、安全加固与 CI 发版等改进。  
+> 按 Apache-2.0 保留原作者版权与许可声明；二次分发请同样保留本致谢。
+
+## 维护与致谢
+
+| 角色 | 归属 |
+|---|---|
+| ZCode 核心（Agent / 工作台 / 终端） | Z.ai |
+| 飞牛 fnOS 原生打包初版 | Kasbuky-sudo |
+| 本发行版维护、双入口网关、安全加固、发版流水线 | SouL87 |
 
 ## 安装
 

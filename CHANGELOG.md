@@ -1,9 +1,12 @@
 # Changelog
 
-## ZCode 3.14.3 · 飞牛 fnOS（本仓库相对最初 Fork 打包）
+## ZCode 3.14.3 · 飞牛 fnOS（SouL87 维护发行）
 
-> 上游：[zai-org/ZCode](https://github.com/zai-org/ZCode) @ `29628c9a`  
-> 本包只做 NAS 移植/打包，不修改 ZCode 本体逻辑。
+> 上游 ZCode：[zai-org/ZCode](https://github.com/zai-org/ZCode) @ `29628c9a`（Z.ai）  
+> 打包初版：[Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode)  
+> 本发行版：SouL87 维护——统一网关、登录门禁、安全加固、CI/Release 流水线
+
+本包只做 NAS 移植/打包，不修改 ZCode 本体逻辑。按 Apache-2.0 保留原版权声明。
 
 ### 新增
 
