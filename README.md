@@ -89,18 +89,28 @@ bash packaging/fnOS/scripts/build.sh --runtime /path/to/zcode-<ver>.tar.gz
 |---|---|---|
 | **「开启内置浏览器控制」（Browser Use 官方插件）** | ❌ **不可用** | 依赖 **Electron 主进程 + 内置 WebView**（CDP executor / 受控 view）；Web/服务端形态没有这套宿主。UI 也标明「浏览器面板仅桌面端可用」 |
 | Playwright 调系统 Chrome/Chromium | ✅ 条件可用 | 包内有 `playwright-core`；需系统里有浏览器（见下） |
-| 外挂浏览器（Chrome DevTools MCP / Agent Browser 等） | ✅ 推荐 | 不绑内置 WebView，agent 走 MCP/CLI 控制你装的浏览器 |
+| 外挂浏览器（CDP / Chrome DevTools MCP 等） | ✅ **推荐** | 不绑内置 WebView，agent 走 **Chrome 远程调试（CDP）** 操作你装的浏览器 |
 
 **这不是 fpk 打包时「删掉了浏览器」**，而是桌面版用 Electron 嵌入式浏览器当「内置浏览器」；NAS 跑的是 Node 服务端 + 网页 UI，没有 Electron Main，所以该开关打不开。
 
-若要在 NAS 上让 agent 控浏览器：
+#### 推荐：fnOS 应用商店 Chrome + CDP
 
-1. 在 NAS 安装 **Chrome/Chromium**（默认查找）：  
-   `/usr/bin/google-chrome-stable` · `/usr/bin/google-chrome` · `/usr/bin/chromium` · `/usr/bin/chromium-browser` · `/snap/bin/chromium`  
-   或显式：`--browser-executable <绝对路径>`
-2. 或配置 **Chrome DevTools MCP / Playwright MCP / Agent Browser**，由 agent 通过 MCP 操作本地浏览器
+1. 在 **飞牛应用中心** 安装 **Chrome 浏览器** 应用（或自行部署开启远程调试的 Chromium）。
+2. 确认 **Chrome 远程调试（CDP）** 已开启，本机调试地址示例：
 
-工具描述里的「控制 ZCode 内置浏览器」仍指桌面 WebView；NAS 上请用系统浏览器 + MCP/Playwright 路径。
+   ```text
+   http://127.0.0.1:16002/json/version
+   ```
+
+   浏览器或 `curl` 能打开该 JSON，即表示 CDP 可用。
+3. 在 ZCode 中配置 **Chrome DevTools MCP / Playwright MCP（CDP）/ Agent Browser** 等，指向上述调试端点，由 agent 控制该 Chrome。
+
+#### 其它方式
+
+- 系统包管理安装 **Chrome/Chromium**（Playwright 默认查找）：  
+  `/usr/bin/google-chrome-stable` · `/usr/bin/google-chrome` · `/usr/bin/chromium` · `/usr/bin/chromium-browser` · `/snap/bin/chromium`  
+  或显式：`--browser-executable <绝对路径>`
+- 工具描述里的「控制 ZCode 内置浏览器」仍指桌面 WebView；NAS 上请用 **CDP + 外部 Chrome**。
 
 ## 目录结构
 
