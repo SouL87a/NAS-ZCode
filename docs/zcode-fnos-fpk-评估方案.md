@@ -1,5 +1,9 @@
 # ZCode → 飞牛 fnOS 原生 fpk：可行性评估与落地方案（v2）
 
+> **文档状态：历史评估稿**（2026-09 前）。功能已落地，当前行为以 [README](../README.md) 与 [论坛发帖-ZCode-最新版.md](论坛发帖-ZCode-最新版.md) 为准。  
+> 本文中「路径令牌 / ?token= URL」等描述已被**登录框 + HttpOnly cookie**、**统一网关**方案取代。
+
+
 - 评估对象：[zai-org/ZCode](https://github.com/zai-org/ZCode)（Apache-2.0，`main` 为 `3.14.0`，官方 CDN 在发 `3.14.1`）
 - 目标：飞牛 fnOS 原生应用包，**不使用 Docker**，**一个包同时支持 x86_64 与 arm64**
 - 本地可复用资产：本地 FNOS 资产目录（fnpack 1.2.3、demoapp 模板）、`NAS-NEM\packaging\fnOS\`（生产级 Node 应用打包模板）、`coolapk-nas\scripts\build_fpk.py`（构建管线）
