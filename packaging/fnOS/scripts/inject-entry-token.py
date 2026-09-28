@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """给 web/index.html 注入「访问令牌」登录门禁。
 
-端口访问不再把令牌放在 URL 路径（地址栏泄露）。
-打开 http://NAS:8988/ 时：先探测 /api/server-info →
-未通过则弹出登录框 → 输入令牌写 cookie → 校验通过后进入。
+设计要点（针对真机问题）：
+1. <head> 里立刻往 <html> 挂全屏遮罩，不等 body —— 避免“先加载 ZCode 再弹框”
+2. 鉴权通过后若刚刚登录，**保留遮罩**直接 location.reload()，
+   避免卸遮罩时闪一下「Web 启动失败」
+3. 网关入口由 gateway-proxy 注入令牌，探测 200，去掉遮罩即可，不强制刷新
 
-统一网关由 gateway-proxy 自动注入令牌，浏览器侧探测会直接通过，不弹框。
+ZCode web 本身没有登录框，只有 ?token= / cookie，所以门禁必须自带。
 """
 
 from __future__ import annotations
@@ -15,35 +17,28 @@ from pathlib import Path
 
 MARKER = "zcode-fnos-login-gate"
 
-# 同时承担：鉴权探测、登录 UI、cookie 写入
 SNIPPET = (
     "<script>/* " + MARKER + " */"
     "(function(){"
     "if(window.__ZCODE_FNOS_LOGIN__)return;"
     "window.__ZCODE_FNOS_LOGIN__=1;"
-    "var KEY='zcode_lite_token';"
-    "function cookieSet(v){"
-    "document.cookie=KEY+'='+encodeURIComponent(v)+'; path=/; SameSite=Lax';"
-    "}"
-    "function cookieClear(){document.cookie=KEY+'=; path=/; Max-Age=0';}"
+    "function cookieSet(v){document.cookie='zcode_lite_token='+encodeURIComponent(v)+'; path=/; SameSite=Lax';}"
+    "function cookieClear(){document.cookie='zcode_lite_token=; path=/; Max-Age=0';}"
     "function el(tag,css){var e=document.createElement(tag);if(css)e.style.cssText=css;return e;}"
-    "function ensureRoot(){"
-    "var r=document.getElementById('zcode-fnos-login');"
-    "if(r)return r;"
-    "r=el('div','position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.92);font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e2e8f0');"
-    "r.id='zcode-fnos-login';"
-    "function mount(){(document.body||document.documentElement).appendChild(r);}"
-    "if(document.body)mount();else document.addEventListener('DOMContentLoaded',mount);"
-    "return r;"
+    "var root=document.getElementById('zcode-fnos-login');"
+    "if(!root){"
+    "root=el('div','position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e2e8f0');"
+    "root.id='zcode-fnos-login';"
+    "(document.documentElement||document.body).appendChild(root);"
     "}"
     "function showStatus(text){"
-    "var root=ensureRoot();root.innerHTML='';"
+    "root.innerHTML='';"
     "var card=el('div','width:340px;padding:28px;border-radius:16px;background:#1e293b;border:1px solid #334155;text-align:center;font-size:13px;color:#94a3b8');"
     "card.textContent=text||'正在验证访问权限…';"
     "root.appendChild(card);"
     "}"
     "function showLogin(err){"
-    "var root=ensureRoot();root.innerHTML='';"
+    "root.innerHTML='';"
     "var card=el('div','width:340px;padding:28px 28px 24px;border-radius:16px;background:#1e293b;border:1px solid #334155;box-shadow:0 18px 50px rgba(0,0,0,.45)');"
     "var h=el('div','font-size:18px;font-weight:600;margin:0 0 8px');h.textContent='ZCode';"
     "var s=el('div','font-size:13px;line-height:1.5;color:#94a3b8;margin-bottom:18px');s.textContent='请输入访问令牌以继续';"
@@ -67,22 +62,22 @@ SNIPPET = (
     "inp.addEventListener('keydown',function(e){if(e.key==='Enter')submit();});"
     "}"
     "function removeGate(){"
-    "var g=document.getElementById('zcode-fnos-login');"
-    "if(g&&g.parentNode)g.parentNode.removeChild(g);"
+    "if(root&&root.parentNode)root.parentNode.removeChild(root);"
     "}"
     "function check(afterSubmit){"
     "fetch('/api/server-info',{cache:'no-store',credentials:'same-origin'}).then(function(r){"
-    "if(r.ok){cookieKeepHint();removeGate();if(afterSubmit)location.reload();return;}"
+    "if(r.ok){"
+    "if(afterSubmit){location.reload();return;}"
+    "removeGate();return;"
+    "}"
     "if(afterSubmit){cookieClear();showLogin('令牌不正确或服务未就绪');return;}"
     "showLogin('');"
     "}).catch(function(){"
     "if(afterSubmit)showLogin('无法连接服务，请稍后重试');else showLogin('');"
     "});"
     "}"
-    "function cookieKeepHint(){}"
     "showStatus('正在验证访问权限…');"
-    "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){check(false);});"
-    "else check(false);"
+    "check(false);"
     "})();"
     "</script>"
 )
@@ -100,7 +95,7 @@ def main() -> int:
 
     html = path.read_text(encoding="utf-8")
 
-    # 移除历史版本注入（路径令牌 / 旧登录门禁）
+    # 移除历史版本（路径令牌 / 旧登录门禁）
     for old in ("zcode-fnos-entry-token", "zcode-fnos-login-gate"):
         while True:
             start = html.find("<script>/* " + old)
