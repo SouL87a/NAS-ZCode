@@ -83,17 +83,24 @@ bash packaging/fnOS/scripts/build.sh --runtime /path/to/zcode-<ver>.tar.gz
 | 浏览器自动化 | 内置 Electron/Chromium | **依赖系统 Chrome/Chromium**（见下） |
 | 配置与凭据 | 本机用户目录 | NAS 应用数据目录（升级保留） |
 
-### 浏览器自动化（并非打包阉割）
+### 浏览器能力说明（NAS 版）
 
-fnOS 包**没有删掉** ZCode 的浏览器工具链（runtime 内含 `playwright-core`）。  
-NAS 上能否用，取决于**能否找到浏览器可执行文件**，与「有没有桌面」无关：
+| 能力 | NAS 版 | 原因 |
+|---|---|---|
+| **「开启内置浏览器控制」（Browser Use 官方插件）** | ❌ **不可用** | 依赖 **Electron 主进程 + 内置 WebView**（CDP executor / 受控 view）；Web/服务端形态没有这套宿主。UI 也标明「浏览器面板仅桌面端可用」 |
+| Playwright 调系统 Chrome/Chromium | ✅ 条件可用 | 包内有 `playwright-core`；需系统里有浏览器（见下） |
+| 外挂浏览器（Chrome DevTools MCP / Agent Browser 等） | ✅ 推荐 | 不绑内置 WebView，agent 走 MCP/CLI 控制你装的浏览器 |
 
-1. 默认在 Linux 查找：  
-   `/usr/bin/google-chrome-stable` · `/usr/bin/google-chrome` · `/usr/bin/chromium` · `/usr/bin/chromium-browser` · `/snap/bin/chromium`
-2. 或显式指定：`--browser-executable <绝对路径>`
-3. 都找不到时才报错：`No installed Chrome or Chromium executable was found`
+**这不是 fpk 打包时「删掉了浏览器」**，而是桌面版用 Electron 嵌入式浏览器当「内置浏览器」；NAS 跑的是 Node 服务端 + 网页 UI，没有 Electron Main，所以该开关打不开。
 
-因此：你在 NAS 上装了 Chromium/Chrome（或单独的可被 CDP 控制的浏览器）后，ZCode 的 Playwright 浏览器工具即可工作；也可以走 **Chrome DevTools MCP / Agent Browser** 等外挂方案，不依赖 ZCode 内置工具。
+若要在 NAS 上让 agent 控浏览器：
+
+1. 在 NAS 安装 **Chrome/Chromium**（默认查找）：  
+   `/usr/bin/google-chrome-stable` · `/usr/bin/google-chrome` · `/usr/bin/chromium` · `/usr/bin/chromium-browser` · `/snap/bin/chromium`  
+   或显式：`--browser-executable <绝对路径>`
+2. 或配置 **Chrome DevTools MCP / Playwright MCP / Agent Browser**，由 agent 通过 MCP 操作本地浏览器
+
+工具描述里的「控制 ZCode 内置浏览器」仍指桌面 WebView；NAS 上请用系统浏览器 + MCP/Playwright 路径。
 
 ## 目录结构
 
