@@ -9,23 +9,12 @@
 - **双入口**：飞牛统一网关（桌面图标）+ 端口直连（访问令牌）
 - 基于 ZCode 官方 Web 运行时，与桌面版共用同一套前端组件
 
-> **ZCode 本体**：Z.ai 开源（[zai-org/ZCode](https://github.com/zai-org/ZCode)，Apache-2.0）。  
-> **fnOS 移植打包**：起于 [Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode)（Apache-2.0）。  
-> **本仓库维护 / 发行**：[SouL87](https://github.com/SouL87a)——在原打包基础上增加统一网关、登录门禁、安全加固与 CI 发版等改进。  
-> 按 Apache-2.0 保留原作者版权与许可声明；二次分发请同样保留本致谢。
-
-## 维护与致谢
-
-| 角色 | 归属 |
-|---|---|
-| ZCode 核心（Agent / 工作台 / 终端） | Z.ai |
-| 飞牛 fnOS 原生打包初版 | Kasbuky-sudo |
-| 本发行版维护、双入口网关、安全加固、发版流水线 | SouL87 |
+> 基于 [zai-org/ZCode](https://github.com/zai-org/ZCode)（Z.ai，Apache-2.0）与 [Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode) 的 fnOS 打包，由 [SouL87](https://github.com/SouL87a) 维护本发行版。详见文末「维护与致谢」。
 
 ## 安装
 
 1. 应用中心安装（或随包自动装）**Node.js v22**
-2. 从 [Releases](../../releases) 下载 `zcode-<版本>.fpk`（不要用 Artifact 的 zip）
+2. 从 [Releases](../../releases) 下载 `zcode-<版本>.fpk`（不要用 Actions Artifact 的 zip）
 3. 应用中心 → 手动安装 → 选择 fpk
 4. 从**桌面图标**打开，或浏览器访问 `http://NAS_IP:8988`
 
@@ -83,6 +72,8 @@ bash packaging/fnOS/scripts/build.sh --runtime /path/to/zcode-<ver>.tar.gz
 | 验证通过后 `git tag v3.14.x && git push origin v3.14.x` | 自动构建并发布 Release（含 changelog） |
 | Actions → Run workflow → 勾选 publish_release | 同上 |
 
+版本变更说明见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 与桌面版的差异
 
 | | 桌面版 | NAS 版 |
@@ -106,6 +97,16 @@ packaging/fnOS/
 │   └── inject-entry-token.py  # 端口登录门禁
 └── wizard/               # 安装向导（访问令牌）
 ```
+
+## 维护与致谢
+
+| 角色 | 归属 |
+|---|---|
+| ZCode 核心（Agent / 工作台 / 终端） | Z.ai |
+| 飞牛 fnOS 原生打包初版 | Kasbuky-sudo |
+| 本发行版维护、双入口网关、安全加固、发版流水线 | SouL87 |
+
+按 Apache-2.0 保留原作者版权声明；二次分发请同样保留本致谢。
 
 ## 许可
 
