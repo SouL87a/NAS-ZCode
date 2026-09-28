@@ -27,6 +27,8 @@ const SOCKET_PATH = process.env.ZCODE_GATEWAY_SOCKET || "";
 const PREFIX = (process.env.ZCODE_GATEWAY_PREFIX || "/app/zcode").replace(/\/+$/, "");
 const UP_HOST = process.env.ZCODE_UPSTREAM_HOST || "127.0.0.1";
 const UP_PORT = Number(process.env.ZCODE_UPSTREAM_PORT || 8988);
+// 统一网关用飞牛登录态；上游 ZCode 仍要求访问令牌时由代理自动注入
+const UP_TOKEN = (process.env.ZCODE_UPSTREAM_TOKEN || "").trim();
 // 本地调试：ZCODE_GATEWAY_TCP_PORT 走 TCP 监听（Windows 无法建 Unix Socket）
 const TCP_PORT = Number(process.env.ZCODE_GATEWAY_TCP_PORT || 0);
 
@@ -37,6 +39,24 @@ if (!SOCKET_PATH && !TCP_PORT) {
 
 function log(msg) {
   console.log(`[gateway] ${new Date().toISOString()} ${msg}`);
+}
+
+/** 给上游请求注入访问令牌（cookie，兼容 ZCode entry-http 鉴权）。 */
+function injectTokenHeaders(headers) {
+  if (!UP_TOKEN) return headers;
+  const out = { ...headers };
+  const cookieName = "zcode_lite_token";
+  const cookieVal = `${cookieName}=${encodeURIComponent(UP_TOKEN)}`;
+  const prev = out.cookie || out.Cookie;
+  if (prev) {
+    const s = String(prev);
+    if (!s.includes(cookieName + "=")) {
+      out.cookie = `${s}; ${cookieVal}`;
+    }
+  } else {
+    out.cookie = cookieVal;
+  }
+  return out;
 }
 
 /** 去掉 /app/zcode 前缀，得到上游路径（以 / 开头）。 */
@@ -126,7 +146,7 @@ const server = http.createServer((req, res) => {
   const query = rawUrl.includes("?") ? "?" + rawUrl.split("?").slice(1).join("?") : "";
   const targetPath = upPath + query;
 
-  const headers = { ...req.headers, host: `${UP_HOST}:${UP_PORT}` };
+  const headers = injectTokenHeaders({ ...req.headers, host: `${UP_HOST}:${UP_PORT}` });
   // 网关身份 Header 原样保留（X-Trim-*）
 
   const preq = http.request(
@@ -193,14 +213,26 @@ server.on("upgrade", (req, socket, head) => {
 
   const up = net.connect(UP_PORT, UP_HOST, () => {
     const headerLines = [`${req.method} ${targetPath} HTTP/1.1`];
+    let sawCookie = false;
     for (let i = 0; i < req.rawHeaders.length; i += 2) {
       const k = req.rawHeaders[i];
       const v = req.rawHeaders[i + 1];
-      if (k.toLowerCase() === "host") {
+      const lk = k.toLowerCase();
+      if (lk === "host") {
         headerLines.push(`Host: ${UP_HOST}:${UP_PORT}`);
+      } else if (lk === "cookie") {
+        sawCookie = true;
+        if (UP_TOKEN && !String(v).includes("zcode_lite_token=")) {
+          headerLines.push(`${k}: ${v}; zcode_lite_token=${encodeURIComponent(UP_TOKEN)}`);
+        } else {
+          headerLines.push(`${k}: ${v}`);
+        }
       } else {
         headerLines.push(`${k}: ${v}`);
       }
+    }
+    if (!sawCookie && UP_TOKEN) {
+      headerLines.push(`Cookie: zcode_lite_token=${encodeURIComponent(UP_TOKEN)}`);
     }
     up.write(headerLines.join("\r\n") + "\r\n\r\n");
     if (head && head.length) up.write(head);

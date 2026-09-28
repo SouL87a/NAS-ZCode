@@ -156,24 +156,29 @@ start_process() {
     local ws
     ws="$(resolve_workspace)"
     mkdir -p "${ws}" "${DATA_DIR}" "$(dirname "${PID_FILE}")" "${TRIM_PKGVAR}/log" "${TRIM_PKGVAR}/etc"
+    ensure_token
     chmod +x "${node}" 2>/dev/null || true
     rm -f "${GATEWAY_SOCKET}"
 
     local version
     version="$(cat "${APP_DIR}/runtime/package.json" 2>/dev/null | grep -oE '"version": "[^"]+"' | head -1 | cut -d'"' -f4)"
-    log_msg "Starting ZCode ${version:-?} (gateway) ..."
+    log_msg "Starting ZCode ${version:-?} (gateway + port) ..."
     log_msg "NODE=${node}  APP_DIR=${APP_DIR}  DATA=${DATA_DIR}  WS=${ws}  PORT=${PORT}  SOCK=${GATEWAY_SOCKET}"
 
-    # ZCode 只监听 127.0.0.1（不对局域网开 TCP）；
-    # 统一网关经 Unix Socket 转发，登录态由飞牛面板校验（X-Trim-*）。
-    # 环境变量写进 bash -c：runuser 会清掉外层环境。
+    # 双入口：
+    #  1) TCP :PORT 对局域网开放，靠 --token / cookie 鉴权（端口访问）
+    #  2) Unix Socket 给飞牛统一网关（面板登录态）；代理会自动注入同一 token，
+    #     所以从桌面图标打开无需再手输令牌
+    local token
+    token="$(cat "${TRIM_PKGVAR}/etc/token")"
     local CMD
     CMD="cd '${APP_DIR}' && exec env \
 HOME='${TRIM_PKGVAR}' \
 ZCODE_DATA_BASE_DIR='${DATA_DIR}' \
 '${node}' '${ENTRY}' --web \
-  --host 127.0.0.1 --port '${PORT}' \
-  --workspace '${ws}' --no-open"
+  --host 0.0.0.0 --port '${PORT}' \
+  --workspace '${ws}' --no-open \
+  --token '${token}'"
 
     if [ "$(id -un)" = "${TRIM_USERNAME}" ]; then
         bash -c "${CMD}" >> "${LOG_FILE}" 2>&1 &
@@ -182,7 +187,7 @@ ZCODE_DATA_BASE_DIR='${DATA_DIR}' \
     fi
     printf "%s" "$!" > "${PID_FILE}"
 
-    # 网关代理：Unix Socket → 127.0.0.1:PORT，并改写前端根路径
+    # 网关代理：Unix Socket → 127.0.0.1:PORT，改写前端根路径，并注入访问令牌
     if [ ! -f "${GATEWAY_PROXY}" ]; then
         log_msg "启动失败：找不到 ${GATEWAY_PROXY}"
         echo "缺少 gateway-proxy.mjs" > "${TRIM_TEMP_LOGFILE}"
@@ -194,6 +199,7 @@ ZCODE_GATEWAY_SOCKET='${GATEWAY_SOCKET}' \
 ZCODE_GATEWAY_PREFIX='${GATEWAY_PREFIX}' \
 ZCODE_UPSTREAM_HOST='127.0.0.1' \
 ZCODE_UPSTREAM_PORT='${PORT}' \
+ZCODE_UPSTREAM_TOKEN='${token}' \
 '${node}' '${GATEWAY_PROXY}'"
     if [ "$(id -un)" = "${TRIM_USERNAME}" ]; then
         bash -c "${GW_CMD}" >> "${LOG_FILE}" 2>&1 &
@@ -201,7 +207,7 @@ ZCODE_UPSTREAM_PORT='${PORT}' \
         runuser -u "${TRIM_USERNAME}" -- bash -c "${GW_CMD}" >> "${LOG_FILE}" 2>&1 &
     fi
 
-    # 就绪条件：TCP 监听 + Unix Socket 出现
+    # 就绪：TCP 监听 + Unix Socket
     local i=0
     while [ "${i}" -lt 55 ]; do
         if port_listening && [ -S "${GATEWAY_SOCKET}" ]; then

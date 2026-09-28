@@ -2,7 +2,7 @@
     ".url": {
         "zcode.Application": {
             "title": "ZCode",
-            "icon": "images/{0}.png",
+            "icon": "images/icon_{0}.png",
             "type": "iframe",
             "protocol": "",
             "gatewayPrefix": "/app/zcode",
