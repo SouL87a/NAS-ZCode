@@ -2,11 +2,12 @@
     ".url": {
         "zcode.Application": {
             "title": "ZCode",
-            "icon": "images/icon_{0}.png",
+            "icon": "images/{0}.png",
             "type": "iframe",
-            "protocol": "http",
-            "port": "8988",
-            "url": "/${wizard_path}",
+            "protocol": "",
+            "gatewayPrefix": "/app/zcode",
+            "gatewaySocket": "zcode.sock",
+            "url": "/app/zcode",
             "allUsers": true
         }
     }

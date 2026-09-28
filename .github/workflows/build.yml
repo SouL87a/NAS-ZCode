@@ -127,7 +127,12 @@ jobs:
         run: |
           FPK="$(ls packaging/fnOS/dist/zcode-*.fpk)"
           echo "fpk: $FPK ($(du -h "$FPK" | cut -f1))"
-          tar -tzf "$FPK" | head -20
+          LIST="$(tar -tzf "$FPK")"
+          echo "$LIST" | head -20
+          # 安装向导缺失会导致 App Center 读不到访问令牌字段
+          echo "$LIST" | grep -q '^wizard/install$' || { echo "✗ fpk 缺少 wizard/install"; exit 1; }
+          echo "$LIST" | grep -q '^cmd/main$' || { echo "✗ fpk 缺少 cmd/main"; exit 1; }
+          echo "✓ fpk 结构检查通过"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -135,3 +140,83 @@ jobs:
           path: packaging/fnOS/dist/zcode-*.fpk
           retention-days: 30
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [runtime, fpk]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download fpk artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: zcode-${{ needs.runtime.outputs.version }}-fpk
+          path: dist
+
+      # artifact 在 UI 上是 zip；download-artifact 会解压，但目录层级可能嵌套。
+      # Release 要的是里面的 .fpk 本体，这里统一摊平并定位。
+      - name: Locate .fpk (unpack if needed)
+        run: |
+          set -euo pipefail
+          echo "download tree:"
+          find dist -maxdepth 4 -print | sed 's/^/  /'
+          # 若仍是 zip（少见），就地解压
+          find dist -type f -name '*.zip' | while read -r z; do
+            echo "unzip: $z"
+            unzip -o "$z" -d "$(dirname "$z")"
+          done
+          # 取唯一的 zcode-*.fpk
+          FPK="$(find dist -type f -name 'zcode-*.fpk' | head -n 1)"
+          if [ -z "$FPK" ]; then
+            echo "✗ 未找到 zcode-*.fpk，dist 内容如上"
+            exit 1
+          fi
+          mkdir -p release
+          cp -f "$FPK" "release/$(basename "$FPK")"
+          echo "fpk_path=release/$(basename "$FPK")" >> "$GITHUB_ENV"
+          echo "✓ 定位到 $(basename "$FPK") ($(du -h "$FPK" | cut -f1))"
+
+      - name: Create or update Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.runtime.outputs.version }}
+          UPSTREAM_SHA: ${{ needs.runtime.outputs.sha }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          FPK="${fpk_path:?}"
+          BASENAME="$(basename "$FPK")"
+          SUM="$(sha256sum "$FPK" | awk '{print $1}')"
+          NOTES="$(mktemp)"
+          cat > "$NOTES" <<EOF
+          ## ZCode ${VERSION} · 飞牛 fnOS 原生版
+
+          - 上游 commit: \`${UPSTREAM_SHA}\`
+          - 构建: Actions run ${GITHUB_RUN_ID}
+          - \`${BASENAME}\` sha256: \`${SUM}\`
+
+          ### 安装
+          1. 应用中心安装 **Node.js v22**（或随包自动装）
+          2. 下载 \`${BASENAME}\`（fpk 本体，不是 zip）
+          3. 应用中心 → 手动安装 → 选该 fpk
+          4. 向导填写**访问令牌**（建议 ≥16 位随机字母数字）
+
+          ### 说明
+          - 服务端默认端口 **8988**，请勿映射公网
+          - 上游：[zai-org/ZCode](https://github.com/zai-org/ZCode)
+          EOF
+
+          echo "upload asset: $BASENAME sha256=$SUM"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，更新附件与说明"
+            gh release upload "$TAG" "$FPK" --clobber
+            gh release edit "$TAG" --notes-file "$NOTES"
+          else
+            echo "创建 Release $TAG"
+            gh release create "$TAG" "$FPK" \
+              --title "ZCode ${VERSION} · fnOS" \
+              --notes-file "$NOTES" \
+              --target "${GITHUB_SHA}"
+          fi
+          echo "Done: $TAG ← $BASENAME"

@@ -15,6 +15,7 @@
 APP="zcode"
 RUNNER="runtime/bin/zcode.mjs"
 PORT="${TRIM_SERVICE_PORT:-8988}"
+GATEWAY_PREFIX="/app/zcode"
 
 LOG_FILE="${TRIM_PKGVAR}/info.log"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
@@ -35,10 +36,13 @@ fi
 
 APP_DIR="${TRIM_APPDEST}"
 DATA_DIR="${TRIM_PKGVAR}/data"
+GATEWAY_SOCKET="${APP_DIR}/zcode.sock"
+GATEWAY_PROXY="${APP_DIR}/gateway-proxy.mjs"
 
 ### 进程识别：runner/server/agent 的 argv 都含 ${APP_DIR}/runtime，
-### 用它做绝对路径匹配，绝不误伤 NAS 上其他 node 进程。
+### gateway-proxy 在 ${APP_DIR}/gateway-proxy.mjs。绝对路径匹配，不误伤其他 node。
 PATTERN="${APP_DIR}/runtime"
+GATEWAY_PATTERN="${APP_DIR}/gateway-proxy.mjs"
 ENTRY="${APP_DIR}/${RUNNER}"
 
 log_msg() {
@@ -64,6 +68,7 @@ pid_alive() {
 ### pgrep/pkill 的 pattern 前必须加 --，否则会被 procps 当成选项。
 own_pids() {
     pgrep -f -- "${PATTERN}" 2>/dev/null
+    pgrep -f -- "${GATEWAY_PATTERN}" 2>/dev/null
 }
 
 read_pid() {
@@ -151,29 +156,24 @@ start_process() {
     local ws
     ws="$(resolve_workspace)"
     mkdir -p "${ws}" "${DATA_DIR}" "$(dirname "${PID_FILE}")" "${TRIM_PKGVAR}/log" "${TRIM_PKGVAR}/etc"
-    ensure_token
     chmod +x "${node}" 2>/dev/null || true
+    rm -f "${GATEWAY_SOCKET}"
 
     local version
     version="$(cat "${APP_DIR}/runtime/package.json" 2>/dev/null | grep -oE '"version": "[^"]+"' | head -1 | cut -d'"' -f4)"
-    log_msg "Starting ZCode ${version:-?} ..."
-    log_msg "NODE=${node}  APP_DIR=${APP_DIR}  DATA=${DATA_DIR}  WS=${ws}  PORT=${PORT}"
+    log_msg "Starting ZCode ${version:-?} (gateway) ..."
+    log_msg "NODE=${node}  APP_DIR=${APP_DIR}  DATA=${DATA_DIR}  WS=${ws}  PORT=${PORT}  SOCK=${GATEWAY_SOCKET}"
 
-    # 环境变量写进 bash -c 内部：runuser 会清掉外层环境。
-    # exec 让 runner 取代 bash 成为本进程，PID 文件里的就是 runner 本人；
-    # HOME 指到 PKGVAR，ZCode 的配置与凭据随应用目录持久化，升级不丢。
-    # --no-open：NAS 上没有浏览器可开；--token 用 wizard_token（入口 URL 同源，
-    # iframe 首次 GET /?token= 命中后服务端种 zcode_lite_token cookie，/ws 即放行）。
-    local token
-    token="$(cat "${TRIM_PKGVAR}/etc/token")"
+    # ZCode 只监听 127.0.0.1（不对局域网开 TCP）；
+    # 统一网关经 Unix Socket 转发，登录态由飞牛面板校验（X-Trim-*）。
+    # 环境变量写进 bash -c：runuser 会清掉外层环境。
     local CMD
     CMD="cd '${APP_DIR}' && exec env \
 HOME='${TRIM_PKGVAR}' \
 ZCODE_DATA_BASE_DIR='${DATA_DIR}' \
 '${node}' '${ENTRY}' --web \
-  --host 0.0.0.0 --port '${PORT}' \
-  --workspace '${ws}' --no-open \
-  --token '${token}'"
+  --host 127.0.0.1 --port '${PORT}' \
+  --workspace '${ws}' --no-open"
 
     if [ "$(id -un)" = "${TRIM_USERNAME}" ]; then
         bash -c "${CMD}" >> "${LOG_FILE}" 2>&1 &
@@ -182,24 +182,45 @@ ZCODE_DATA_BASE_DIR='${DATA_DIR}' \
     fi
     printf "%s" "$!" > "${PID_FILE}"
 
-    # 等端口真正监听再交差。ZCode 首启要拉起 3 个进程，比单进程应用慢，
-    # 上限放到 55s（应用中心健康门限约 60s，必须赶在它前面就绪）。
+    # 网关代理：Unix Socket → 127.0.0.1:PORT，并改写前端根路径
+    if [ ! -f "${GATEWAY_PROXY}" ]; then
+        log_msg "启动失败：找不到 ${GATEWAY_PROXY}"
+        echo "缺少 gateway-proxy.mjs" > "${TRIM_TEMP_LOGFILE}"
+        return 1
+    fi
+    local GW_CMD
+    GW_CMD="exec env \
+ZCODE_GATEWAY_SOCKET='${GATEWAY_SOCKET}' \
+ZCODE_GATEWAY_PREFIX='${GATEWAY_PREFIX}' \
+ZCODE_UPSTREAM_HOST='127.0.0.1' \
+ZCODE_UPSTREAM_PORT='${PORT}' \
+'${node}' '${GATEWAY_PROXY}'"
+    if [ "$(id -un)" = "${TRIM_USERNAME}" ]; then
+        bash -c "${GW_CMD}" >> "${LOG_FILE}" 2>&1 &
+    else
+        runuser -u "${TRIM_USERNAME}" -- bash -c "${GW_CMD}" >> "${LOG_FILE}" 2>&1 &
+    fi
+
+    # 就绪条件：TCP 监听 + Unix Socket 出现
     local i=0
     while [ "${i}" -lt 55 ]; do
-        if port_listening; then
-            log_msg "started, port ${PORT} 已监听 (PID=$(cat "${PID_FILE}" 2>/dev/null))"
+        if port_listening && [ -S "${GATEWAY_SOCKET}" ]; then
+            log_msg "started, port ${PORT} + socket ${GATEWAY_SOCKET} (PID=$(cat "${PID_FILE}" 2>/dev/null))"
             return 0
         fi
-        pid_alive "$(read_pid)" || { log_msg "警告：进程提前退出，详见日志"; return 1; }
+        pid_alive "$(read_pid)" || { log_msg "警告：ZCode 进程提前退出，详见日志"; return 1; }
         sleep 1
         i=$((i + 1))
     done
-    # 起慢一点不算失败：进程还活着就让 fnOS 再探测，避免被超时逻辑杀掉重来抢端口。
-    if pid_alive "$(read_pid)"; then
-        log_msg "警告：${PORT} 暂未监听但进程存活，交由应用中心继续探测"
+    if pid_alive "$(read_pid)" && [ -S "${GATEWAY_SOCKET}" ]; then
+        log_msg "started (slow), socket ready"
         return 0
     fi
-    log_msg "警告：进程已退出且 ${PORT} 未监听，请查看应用日志"
+    if pid_alive "$(read_pid)"; then
+        log_msg "警告：端口/socket 暂未就绪但进程存活，交由应用中心继续探测"
+        return 0
+    fi
+    log_msg "警告：进程已退出且未就绪，请查看应用日志"
     return 1
 }
 
@@ -227,14 +248,17 @@ stop_process() {
         rm -f "${PID_FILE}"
     fi
 
-    # 兜底：runner 的子进程（server/agent）可能还活着（pidfile 只记 runner）。
+    # 兜底：runner 的子进程（server/agent）与网关代理可能还活着。
     # 按绝对路径 pattern 清理，TERM → KILL。
     if own_pids > /dev/null 2>&1; then
-        log_msg "清理残留进程 (${PATTERN})"
+        log_msg "清理残留进程 (${PATTERN} / ${GATEWAY_PATTERN})"
         pkill -TERM -f -- "${PATTERN}" 2>/dev/null || true
+        pkill -TERM -f -- "${GATEWAY_PATTERN}" 2>/dev/null || true
         sleep 1
         pkill -KILL -f -- "${PATTERN}" 2>/dev/null || true
+        pkill -KILL -f -- "${GATEWAY_PATTERN}" 2>/dev/null || true
     fi
+    rm -f "${GATEWAY_SOCKET}"
 
     log_msg "process stopped"
     return 0

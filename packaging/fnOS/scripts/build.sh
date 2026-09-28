@@ -121,6 +121,8 @@ mkdir -p "${APP_DIR}/ui/images"
 cp "${PKG_DIR}/ui/config" "${APP_DIR}/ui/config"
 cp "${PKG_DIR}/ui-images/icon_64.png"  "${APP_DIR}/ui/images/icon_64.png"
 cp "${PKG_DIR}/ui-images/icon_256.png" "${APP_DIR}/ui/images/icon_256.png"
+# 统一网关适配层：监听 Unix Socket，转发到 ZCode TCP，并改写前端根路径
+cp "${HERE}/gateway-proxy.mjs" "${APP_DIR}/gateway-proxy.mjs"
 # 包根的 ICON.PNG(64x64) 与 ICON_256.PNG(256x256) 按 fnOS 规范由 ui-images 派生。
 # 不在仓库里同时存放 ICON_256.PNG 与 icon_256.png —— Windows 大小写不敏感，
 # 两者会同名冲突，导致 CI checkout 后缺文件。
@@ -186,7 +188,7 @@ else
     cp "${APP_TGZ}" "${STAGE}/app.tgz"
     rm -f "${APP_TGZ}"
     ( cd "${STAGE}" && tar -czf "${FINAL}" manifest ICON.PNG ICON_256.PNG \
-        app.tgz cmd config )
+        app.tgz cmd config wizard )
     rm -f "${STAGE}/app.tgz"
 fi
 if [ ! -f "${FINAL}" ]; then
