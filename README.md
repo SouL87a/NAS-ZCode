@@ -9,14 +9,9 @@
 - **双入口**：飞牛统一网关（桌面图标）+ 端口直连（访问令牌）
 - 基于 ZCode 官方 Web 运行时，与桌面版共用同一套前端组件
 
-> 基于 [zai-org/ZCode](https://github.com/zai-org/ZCode)（Z.ai，Apache-2.0）与 [Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode) 的 fnOS 打包，由 [SouL87](https://github.com/SouL87a) 维护本发行版。详见文末「维护与致谢」。
-
-## 安装
-
-1. 应用中心安装（或随包自动装）**Node.js v22**
-2. 从 [Releases](../../releases) 下载 `zcode-<版本>.fpk`（不要用 Actions Artifact 的 zip）
-3. 应用中心 → 手动安装 → 选择 fpk
-4. 从**桌面图标**打开，或浏览器访问 `http://NAS_IP:8988`
+> 基于 [zai-org/ZCode](https://github.com/zai-org/ZCode)（Z.ai，Apache-2.0）
+> 参考了 [Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode) 的 fnOS 打包
+> 由 [SouL87](https://github.com/SouL87a) 维护本发行版。详见文末「维护与致谢」。
 
 ## 双入口
 
@@ -46,6 +41,13 @@ ZCode Web 等于把能执行命令的 AI agent + 终端开在 NAS 上，访问�
 - 令牌经环境变量传给服务端（不出现在进程命令行）
 - 以专用包用户运行（`run-as: package`，非 root）
 - 建议：仅在可信局域网使用；强随机令牌；不暴露公网
+
+## 安装
+
+1. 应用中心安装（或随包自动装）**Node.js v22**
+2. 从 [Releases](../../releases) 下载 `zcode-<版本>.fpk`（不要用 Actions Artifact 的 zip）
+3. 应用中心 → 手动安装 → 选择 fpk
+4. 从**桌面图标**打开，或浏览器访问 `http://NAS_IP:8988`
 
 ## 工作区
 
