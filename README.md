@@ -80,8 +80,20 @@ bash packaging/fnOS/scripts/build.sh --runtime /path/to/zcode-<ver>.tar.gz
 |---|---|---|
 | 界面 | Electron 窗口 | 浏览器 / 飞牛桌面 iframe |
 | 终端 | 本机 node-pty | 服务端 node-pty（浏览器内） |
-| 浏览器自动化 | 内置 | 不可用（NAS 无桌面 Chromium） |
+| 浏览器自动化 | 内置 Electron/Chromium | **依赖系统 Chrome/Chromium**（见下） |
 | 配置与凭据 | 本机用户目录 | NAS 应用数据目录（升级保留） |
+
+### 浏览器自动化（并非打包阉割）
+
+fnOS 包**没有删掉** ZCode 的浏览器工具链（runtime 内含 `playwright-core`）。  
+NAS 上能否用，取决于**能否找到浏览器可执行文件**，与「有没有桌面」无关：
+
+1. 默认在 Linux 查找：  
+   `/usr/bin/google-chrome-stable` · `/usr/bin/google-chrome` · `/usr/bin/chromium` · `/usr/bin/chromium-browser` · `/snap/bin/chromium`
+2. 或显式指定：`--browser-executable <绝对路径>`
+3. 都找不到时才报错：`No installed Chrome or Chromium executable was found`
+
+因此：你在 NAS 上装了 Chromium/Chrome（或单独的可被 CDP 控制的浏览器）后，ZCode 的 Playwright 浏览器工具即可工作；也可以走 **Chrome DevTools MCP / Agent Browser** 等外挂方案，不依赖 ZCode 内置工具。
 
 ## 目录结构
 
