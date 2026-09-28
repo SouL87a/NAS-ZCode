@@ -1,8 +1,11 @@
 name: build
 
+# 构建：push main / 打 tag v* / 手动都会跑（产出 Artifacts）
+# Release：仅 tag v* 或手动勾选 publish_release 时才发（先验证再发版）
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths:
       - ".github/workflows/build.yml"
       - "upstream.version"
@@ -13,6 +16,11 @@ on:
         description: "ZCode ref (tag / branch / commit)，留空用 upstream.version 里钉住的值"
         required: false
         default: ""
+      publish_release:
+        description: "验证通过后发布 GitHub Release（勾选才发）"
+        type: boolean
+        required: false
+        default: false
 
 env:
   NODE_VERSION: "24.14.0"
@@ -144,6 +152,10 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [runtime, fpk]
+    # 只有：推送 v* tag，或手动 workflow 且勾选 publish_release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release == true)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -190,17 +202,41 @@ jobs:
           UPSTREAM_SHA: ${{ needs.runtime.outputs.sha }}
         run: |
           set -euo pipefail
-          TAG="v${VERSION}"
+          # tag 触发时用 tag 名；手动发布用 v<版本>
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="v${VERSION}"
+          fi
           FPK="${fpk_path:?}"
           BASENAME="$(basename "$FPK")"
           SUM="$(sha256sum "$FPK" | awk '{print $1}')"
           NOTES="$(mktemp)"
+
+          # changelog：上一个 v* tag → HEAD（不含本次 tag）；首次则最近 10 条
+          PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -vx "${TAG}" | head -n 1 || true)"
+          if [ -n "${PREV_TAG}" ]; then
+            CHANGES="$(git log --no-merges --pretty=format:'- %s (%h)' "${PREV_TAG}..HEAD")"
+            CHANGE_HEADER="自 \`${PREV_TAG}\` 以来："
+          else
+            CHANGES="$(git log --no-merges --pretty=format:'- %s (%h)' -n 10)"
+            CHANGE_HEADER="最近提交："
+          fi
+          if [ -z "${CHANGES}" ]; then
+            CHANGES="- （无 commit 说明）"
+          fi
+
           cat > "$NOTES" <<EOF
           ## ZCode ${VERSION} · 飞牛 fnOS 原生版
 
           - 上游 commit: \`${UPSTREAM_SHA}\`
           - 构建: Actions run ${GITHUB_RUN_ID}
           - \`${BASENAME}\` sha256: \`${SUM}\`
+
+          ### 变更
+          ${CHANGE_HEADER}
+
+          ${CHANGES}
 
           ### 安装
           1. 应用中心安装 **Node.js v22**（或随包自动装）
@@ -209,8 +245,8 @@ jobs:
           4. 向导填写**访问令牌**（建议 ≥16 位随机字母数字）
 
           ### 说明
-          - 服务端默认端口 **8988**，请勿映射公网
-          - 上游：[zai-org/ZCode](https://github.com/zai-org/ZCode)
+          - 入口：桌面图标（统一网关 / 飞牛登录）+ 端口 8988（令牌登录框）
+          - 请勿把 8988 映射公网；上游：[zai-org/ZCode](https://github.com/zai-org/ZCode)
           EOF
 
           echo "upload asset: $BASENAME sha256=$SUM"
