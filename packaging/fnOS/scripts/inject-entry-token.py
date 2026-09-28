@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """给 web/index.html 注入「访问令牌」登录门禁。
 
-设计要点（针对真机问题）：
-1. <head> 里立刻往 <html> 挂全屏遮罩，不等 body —— 避免“先加载 ZCode 再弹框”
-2. 鉴权通过后若刚刚登录，**保留遮罩**直接 location.reload()，
-   避免卸遮罩时闪一下「Web 启动失败」
-3. 网关入口由 gateway-proxy 注入令牌，探测 200，去掉遮罩即可，不强制刷新
+体验要点：
+1. <head> 立刻往 <html> 挂遮罩（不等 body）
+2. **无 cookie 时直接弹登录框**，不做先探测再弹（去掉无谓等待）
+3. 有 cookie 时才快速探测；登录成功保持遮罩 reload，避免闪错误
+4. 失败次数增多会拉长提交间隔（客户端软限速，防脚本乱试）
 
-ZCode web 本身没有登录框，只有 ?token= / cookie，所以门禁必须自带。
+ZCode web 无原生登录框，只有 ?token=/cookie，门禁必须自带。
 """
 
 from __future__ import annotations
@@ -22,6 +22,10 @@ SNIPPET = (
     "(function(){"
     "if(window.__ZCODE_FNOS_LOGIN__)return;"
     "window.__ZCODE_FNOS_LOGIN__=1;"
+    "var KEY='zcode_lite_token';"
+    "function cookieGet(){try{var m=document.cookie.match(/(?:^|;\\s*)'+KEY+'=([^;]*)/);return m?decodeURIComponent(m[1]):null;}catch(e){return null;}}"
+    .replace("'+KEY+'", "zcode_lite_token")
+    +
     "function cookieSet(v){document.cookie='zcode_lite_token='+encodeURIComponent(v)+'; path=/; SameSite=Lax';}"
     "function cookieClear(){document.cookie='zcode_lite_token=; path=/; Max-Age=0';}"
     "function el(tag,css){var e=document.createElement(tag);if(css)e.style.cssText=css;return e;}"
@@ -52,6 +56,9 @@ SNIPPET = (
     "root.appendChild(card);"
     "setTimeout(function(){try{inp.focus();}catch(e){}},0);"
     "function submit(){"
+    "var now=Date.now();"
+    "var wait=window.__ZCODE_FNOS_WAIT__||0;"
+    "if(now<wait){msg.style.color='#f87171';msg.textContent='请 '+Math.ceil((wait-now)/1000)+' 秒后再试';return;}"
     "var v=(inp.value||'').trim();"
     "if(!v){msg.textContent='请输入访问令牌';return;}"
     "msg.style.color='#94a3b8';msg.textContent='验证中…';btn.disabled=true;"
@@ -61,8 +68,11 @@ SNIPPET = (
     "btn.onclick=submit;"
     "inp.addEventListener('keydown',function(e){if(e.key==='Enter')submit();});"
     "}"
-    "function removeGate(){"
-    "if(root&&root.parentNode)root.parentNode.removeChild(root);"
+    "function removeGate(){if(root&&root.parentNode)root.parentNode.removeChild(root);}"
+    "function bumpFail(){"
+    "var n=(window.__ZCODE_FNOS_FAIL__||0)+1;"
+    "window.__ZCODE_FNOS_FAIL__=n;"
+    "window.__ZCODE_FNOS_WAIT__=Date.now()+Math.min(8000,n*800);"
     "}"
     "function check(afterSubmit){"
     "fetch('/api/server-info',{cache:'no-store',credentials:'same-origin'}).then(function(r){"
@@ -70,14 +80,16 @@ SNIPPET = (
     "if(afterSubmit){location.reload();return;}"
     "removeGate();return;"
     "}"
+    "bumpFail();"
     "if(afterSubmit){cookieClear();showLogin('令牌不正确或服务未就绪');return;}"
     "showLogin('');"
     "}).catch(function(){"
-    "if(afterSubmit)showLogin('无法连接服务，请稍后重试');else showLogin('');"
+    "if(afterSubmit){bumpFail();showLogin('无法连接服务，请稍后重试');return;}"
+    "showLogin('');"
     "});"
     "}"
-    "showStatus('正在验证访问权限…');"
-    "check(false);"
+    "if(!cookieGet()){showLogin('');}"
+    "else{showStatus('正在验证访问权限…');check(false);}"
     "})();"
     "</script>"
 )
@@ -95,7 +107,6 @@ def main() -> int:
 
     html = path.read_text(encoding="utf-8")
 
-    # 移除历史版本（路径令牌 / 旧登录门禁）
     for old in ("zcode-fnos-entry-token", "zcode-fnos-login-gate"):
         while True:
             start = html.find("<script>/* " + old)
