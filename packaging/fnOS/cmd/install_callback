@@ -33,9 +33,13 @@ TOKEN_FILE="${TRIM_PKGVAR}/etc/token"
 if [ -n "${wizard_path:-${wizard_token:-}}" ]; then
     TOKEN="${wizard_path:-${wizard_token}}"
 elif [ -s "${TOKEN_FILE}" ]; then
-    TOKEN="$(cat "${TOKEN_FILE}")"
+    TOKEN="$(tr -d '\n' < "${TOKEN_FILE}")"
 else
-    TOKEN="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
+    TOKEN="$(tr -dc 'A-Za-z0-9_-' < /dev/urandom | head -c 32)"
+fi
+# 纵深防御：脚本内再校验，禁止把非法值写盘/拼进 shell
+if ! printf '%s' "${TOKEN}" | grep -Eq '^[A-Za-z0-9_-]{8,64}$'; then
+    TOKEN="$(tr -dc 'A-Za-z0-9_-' < /dev/urandom | head -c 32)"
 fi
 printf '%s' "${TOKEN}" > "${TOKEN_FILE}"
 chmod 600 "${TOKEN_FILE}" 2>/dev/null || true

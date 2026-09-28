@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""给 web/index.html 注入「访问令牌」登录门禁。
+"""给 web/index.html 注入移动端友好的「访问令牌」登录门禁。
 
-体验要点：
-1. <head> 立刻往 <html> 挂遮罩（不等 body）
-2. **无 cookie 时直接弹登录框**，不做先探测再弹（去掉无谓等待）
-3. 有 cookie 时才快速探测；登录成功保持遮罩 reload，避免闪错误
-4. 失败次数增多会拉长提交间隔（客户端软限速，防脚本乱试）
+安全要点：
+- 无 cookie 立即显示登录框（不做先探测空等）
+- 校验用 GET /api/server-info?token=...，由服务端 Set-Cookie（HttpOnly）
+  —— 不再用 document.cookie 写令牌（修复 L2）
+- 失败冷却限速（客户端软限速）
+- 适配手机：safe-area、触控、小屏
 
-ZCode web 无原生登录框，只有 ?token=/cookie，门禁必须自带。
+统一网关：gateway-proxy 仅对带 X-Trim-* 的网关请求注入令牌，
+浏览器侧探测 200 会直接进入，不弹框。
 """
 
 from __future__ import annotations
@@ -22,35 +24,30 @@ SNIPPET = (
     "(function(){"
     "if(window.__ZCODE_FNOS_LOGIN__)return;"
     "window.__ZCODE_FNOS_LOGIN__=1;"
-    "var KEY='zcode_lite_token';"
-    "function cookieGet(){try{var m=document.cookie.match(/(?:^|;\\s*)'+KEY+'=([^;]*)/);return m?decodeURIComponent(m[1]):null;}catch(e){return null;}}"
-    .replace("'+KEY+'", "zcode_lite_token")
-    +
-    "function cookieSet(v){document.cookie='zcode_lite_token='+encodeURIComponent(v)+'; path=/; SameSite=Lax';}"
-    "function cookieClear(){document.cookie='zcode_lite_token=; path=/; Max-Age=0';}"
+    "function cookieGet(){try{var m=document.cookie.match(/(?:^|;\\s*)zcode_lite_token=([^;]*)/);return m?decodeURIComponent(m[1]):null;}catch(e){return null;}}"
     "function el(tag,css){var e=document.createElement(tag);if(css)e.style.cssText=css;return e;}"
     "var root=document.getElementById('zcode-fnos-login');"
     "if(!root){"
-    "root=el('div','position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e2e8f0');"
+    "root=el('div','position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;background:#0f172a;padding:16px;box-sizing:border-box;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e2e8f0');"
     "root.id='zcode-fnos-login';"
     "(document.documentElement||document.body).appendChild(root);"
     "}"
     "function showStatus(text){"
     "root.innerHTML='';"
-    "var card=el('div','width:340px;padding:28px;border-radius:16px;background:#1e293b;border:1px solid #334155;text-align:center;font-size:13px;color:#94a3b8');"
+    "var card=el('div','width:100%;max-width:360px;padding:28px 24px;border-radius:16px;background:#1e293b;border:1px solid #334155;text-align:center;font-size:13px;color:#94a3b8');"
     "card.textContent=text||'正在验证访问权限…';"
     "root.appendChild(card);"
     "}"
     "function showLogin(err){"
     "root.innerHTML='';"
-    "var card=el('div','width:340px;padding:28px 28px 24px;border-radius:16px;background:#1e293b;border:1px solid #334155;box-shadow:0 18px 50px rgba(0,0,0,.45)');"
-    "var h=el('div','font-size:18px;font-weight:600;margin:0 0 8px');h.textContent='ZCode';"
-    "var s=el('div','font-size:13px;line-height:1.5;color:#94a3b8;margin-bottom:18px');s.textContent='请输入访问令牌以继续';"
-    "var inp=el('input','width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:14px;outline:none');"
-    "inp.type='password';inp.placeholder='访问令牌';inp.autocomplete='current-password';"
-    "var msg=el('div','min-height:18px;margin:10px 0 4px;font-size:12px;color:#f87171');"
+    "var card=el('div','width:100%;max-width:360px;padding:28px 22px 22px;border-radius:16px;background:#1e293b;border:1px solid #334155;box-shadow:0 18px 50px rgba(0,0,0,.45)');"
+    "var h=el('div','font-size:20px;font-weight:600;margin:0 0 8px');h.textContent='ZCode';"
+    "var s=el('div','font-size:13px;line-height:1.55;color:#94a3b8;margin-bottom:18px');s.textContent='请输入访问令牌以继续';"
+    "var inp=el('input','width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:16px;outline:none');"
+    "inp.type='password';inp.placeholder='访问令牌';inp.autocomplete='current-password';inp.setAttribute('enterkeyhint','go');"
+    "var msg=el('div','min-height:20px;margin:10px 0 2px;font-size:12px;line-height:1.4;color:#f87171');"
     "if(err)msg.textContent=err;"
-    "var btn=el('button','width:100%;margin-top:8px;padding:10px 12px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer');"
+    "var btn=el('button','width:100%;margin-top:10px;padding:13px 14px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-size:15px;font-weight:600;cursor:pointer');"
     "btn.type='button';btn.textContent='进入';"
     "card.appendChild(h);card.appendChild(s);card.appendChild(inp);card.appendChild(msg);card.appendChild(btn);"
     "root.appendChild(card);"
@@ -61,35 +58,31 @@ SNIPPET = (
     "if(now<wait){msg.style.color='#f87171';msg.textContent='请 '+Math.ceil((wait-now)/1000)+' 秒后再试';return;}"
     "var v=(inp.value||'').trim();"
     "if(!v){msg.textContent='请输入访问令牌';return;}"
+    "if(v.length<16){msg.textContent='令牌至少 16 位';return;}"
     "msg.style.color='#94a3b8';msg.textContent='验证中…';btn.disabled=true;"
-    "cookieSet(v);"
-    "check(true);"
+    "fetch('/api/server-info?token='+encodeURIComponent(v),{cache:'no-store',credentials:'same-origin'}).then(function(r){"
+    "if(r.ok){location.reload();return;}"
+    "window.__ZCODE_FNOS_FAIL__=(window.__ZCODE_FNOS_FAIL__||0)+1;"
+    "window.__ZCODE_FNOS_WAIT__=Date.now()+Math.min(8000,window.__ZCODE_FNOS_FAIL__*800);"
+    "showLogin('令牌不正确或服务未就绪');"
+    "}).catch(function(){"
+    "window.__ZCODE_FNOS_FAIL__=(window.__ZCODE_FNOS_FAIL__||0)+1;"
+    "window.__ZCODE_FNOS_WAIT__=Date.now()+Math.min(8000,window.__ZCODE_FNOS_FAIL__*800);"
+    "showLogin('无法连接服务，请稍后重试');"
+    "});"
     "}"
     "btn.onclick=submit;"
     "inp.addEventListener('keydown',function(e){if(e.key==='Enter')submit();});"
     "}"
     "function removeGate(){if(root&&root.parentNode)root.parentNode.removeChild(root);}"
-    "function bumpFail(){"
-    "var n=(window.__ZCODE_FNOS_FAIL__||0)+1;"
-    "window.__ZCODE_FNOS_FAIL__=n;"
-    "window.__ZCODE_FNOS_WAIT__=Date.now()+Math.min(8000,n*800);"
-    "}"
-    "function check(afterSubmit){"
+    "function check(){"
     "fetch('/api/server-info',{cache:'no-store',credentials:'same-origin'}).then(function(r){"
-    "if(r.ok){"
-    "if(afterSubmit){location.reload();return;}"
-    "removeGate();return;"
-    "}"
-    "bumpFail();"
-    "if(afterSubmit){cookieClear();showLogin('令牌不正确或服务未就绪');return;}"
+    "if(r.ok){removeGate();return;}"
     "showLogin('');"
-    "}).catch(function(){"
-    "if(afterSubmit){bumpFail();showLogin('无法连接服务，请稍后重试');return;}"
-    "showLogin('');"
-    "});"
+    "}).catch(function(){showLogin('');});"
     "}"
     "if(!cookieGet()){showLogin('');}"
-    "else{showStatus('正在验证访问权限…');check(false);}"
+    "else{showStatus('正在验证访问权限…');check();}"
     "})();"
     "</script>"
 )

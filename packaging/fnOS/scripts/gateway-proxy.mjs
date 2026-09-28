@@ -41,9 +41,21 @@ function log(msg) {
   console.log(`[gateway] ${new Date().toISOString()} ${msg}`);
 }
 
-/** 给上游请求注入访问令牌（cookie，兼容 ZCode entry-http 鉴权）。 */
+/**
+ * 飞牛统一网关在校验 NAS 会话后会转发 X-Trim-* 身份 Header。
+ * 只有带身份的请求才注入上游令牌——本机任意进程直连 socket 时
+ * 不会自动获得鉴权（修复 H1：0777 socket + 无条件注令牌）。
+ */
+function isGatewayRequest(headers) {
+  return Boolean(
+    headers["x-trim-userid"] || headers["x-trim-username"] || headers["x-trim-isadmin"]
+  );
+}
+
+/** 给网关请求注入访问令牌（cookie，兼容 ZCode entry-http 鉴权）。 */
 function injectTokenHeaders(headers) {
   if (!UP_TOKEN) return headers;
+  if (!isGatewayRequest(headers)) return headers;
   const out = { ...headers };
   const cookieName = "zcode_lite_token";
   const cookieVal = `${cookieName}=${encodeURIComponent(UP_TOKEN)}`;
@@ -178,12 +190,19 @@ const server = http.createServer((req, res) => {
       pres.on("end", () => {
         let body = Buffer.concat(chunks);
         const outHeaders = { ...pres.headers };
-        if (body.length < 2 * 1024 * 1024) {
-          body = Buffer.from(rewriteHtml(body.toString("utf8"), PREFIX), "utf8");
+        const enc = String(pres.headers["content-encoding"] || "").toLowerCase();
+        // 压缩体不可当 utf8 改写，原样转发
+        const compressible = !enc || enc === "identity";
+        if (compressible && body.length < 2 * 1024 * 1024) {
+          const original = body.toString("utf8");
+          const rewritten = rewriteHtml(original, PREFIX);
+          if (rewritten !== original) {
+            body = Buffer.from(rewritten, "utf8");
+            delete outHeaders["content-encoding"];
+            delete outHeaders["transfer-encoding"];
+            outHeaders["content-length"] = String(body.length);
+          }
         }
-        delete outHeaders["content-encoding"];
-        delete outHeaders["transfer-encoding"];
-        outHeaders["content-length"] = String(body.length);
         res.writeHead(pres.statusCode || 502, outHeaders);
         res.end(body);
       });
@@ -214,6 +233,7 @@ server.on("upgrade", (req, socket, head) => {
   const up = net.connect(UP_PORT, UP_HOST, () => {
     const headerLines = [`${req.method} ${targetPath} HTTP/1.1`];
     let sawCookie = false;
+    const allowInject = Boolean(UP_TOKEN) && isGatewayRequest(req.headers);
     for (let i = 0; i < req.rawHeaders.length; i += 2) {
       const k = req.rawHeaders[i];
       const v = req.rawHeaders[i + 1];
@@ -222,7 +242,7 @@ server.on("upgrade", (req, socket, head) => {
         headerLines.push(`Host: ${UP_HOST}:${UP_PORT}`);
       } else if (lk === "cookie") {
         sawCookie = true;
-        if (UP_TOKEN && !String(v).includes("zcode_lite_token=")) {
+        if (allowInject && !String(v).includes("zcode_lite_token=")) {
           headerLines.push(`${k}: ${v}; zcode_lite_token=${encodeURIComponent(UP_TOKEN)}`);
         } else {
           headerLines.push(`${k}: ${v}`);
@@ -231,7 +251,7 @@ server.on("upgrade", (req, socket, head) => {
         headerLines.push(`${k}: ${v}`);
       }
     }
-    if (!sawCookie && UP_TOKEN) {
+    if (!sawCookie && allowInject) {
       headerLines.push(`Cookie: zcode_lite_token=${encodeURIComponent(UP_TOKEN)}`);
     }
     up.write(headerLines.join("\r\n") + "\r\n\r\n");
@@ -262,7 +282,9 @@ function listen() {
   fs.mkdirSync(path.dirname(SOCKET_PATH), { recursive: true });
   server.listen(SOCKET_PATH, () => {
     try {
-      fs.chmodSync(SOCKET_PATH, 0o777);
+      // 0666：网关进程与应用用户可能不同 uid；不给执行位。
+      // 鉴权不依赖 socket 权限——仅 X-Trim-*（网关会话）才注入令牌。
+      fs.chmodSync(SOCKET_PATH, 0o666);
     } catch {}
     log(`listening unix:${SOCKET_PATH} → http://${UP_HOST}:${UP_PORT} (prefix=${PREFIX || "/"})`);
   });

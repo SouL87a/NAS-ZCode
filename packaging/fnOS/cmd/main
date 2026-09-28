@@ -13,7 +13,9 @@
 ### status 约定：运行中 exit 0，未运行 exit 3（不是 1）。
 
 APP="zcode"
-RUNNER="runtime/bin/zcode.mjs"
+# 直接跑 entry-http：令牌只经环境变量传递，不进 argv（修复 M1）
+RUNNER="runtime/server/entry-http.js"
+AGENT="runtime/agent/zcode.cjs"
 PORT="${TRIM_SERVICE_PORT:-8988}"
 GATEWAY_PREFIX="/app/zcode"
 
@@ -94,15 +96,24 @@ find_node() {
 ### 已把终值落盘到 etc/token）。cmd/main 只兜底：文件缺失且向导值存在时补写。
 ### 服务端 --token 用文件里的值；入口 URL 用 ui/config 里的 ${wizard_token}（安装时
 ### 已替换为同一值）。config 向导改 token → config_callback 落盘 → 重启生效。
+### 令牌合法性（纵深防御 L5）：向导 pattern 之外脚本内再校验，避免拼进 shell
+validate_token() {
+    local t="$1"
+    printf '%s' "${t}" | grep -Eq '^[A-Za-z0-9_-]{8,64}$'
+}
+
 ensure_token() {
     local f="${TRIM_PKGVAR}/etc/token"
     if [ -s "${f}" ]; then
-        return 0
+        local cur
+        cur="$(tr -d '\n' < "${f}")"
+        if validate_token "${cur}"; then
+            return 0
+        fi
+        log_msg "访问令牌格式非法，将重新生成"
     fi
-    local t="${wizard_token:-}"
-    if [ -z "${t}" ]; then
-        t="$(head -c 24 /dev/urandom | base64 | tr -d '\n')"
-    fi
+    local t
+    t="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9_-' | head -c 32)"
     mkdir -p "$(dirname "${f}")"
     printf '%s' "${t}" > "${f}"
     chmod 600 "${f}" 2>/dev/null || true
@@ -166,19 +177,30 @@ start_process() {
     log_msg "NODE=${node}  APP_DIR=${APP_DIR}  DATA=${DATA_DIR}  WS=${ws}  PORT=${PORT}  SOCK=${GATEWAY_SOCKET}"
 
     # 双入口：
-    #  1) TCP :PORT 对局域网开放，靠 --token / cookie 鉴权（端口访问）
-    #  2) Unix Socket 给飞牛统一网关（面板登录态）；代理会自动注入同一 token，
-    #     所以从桌面图标打开无需再手输令牌
+    #  1) TCP :PORT 局域网：登录框 + cookie（令牌不进 URL/argv）
+    #  2) Unix Socket 统一网关：X-Trim-* 会话，代理只对网关请求注令牌
     local token
-    token="$(cat "${TRIM_PKGVAR}/etc/token")"
+    token="$(tr -d '\n' < "${TRIM_PKGVAR}/etc/token")"
+    if ! validate_token "${token}"; then
+        log_msg "启动失败：访问令牌格式非法"
+        echo "访问令牌格式非法，请在应用设置中重设" > "${TRIM_TEMP_LOGFILE}"
+        return 1
+    fi
+    local agent_json
+    agent_json="$(printf '["%s","app-server","--stdio"]' "${APP_DIR}/${AGENT}")"
     local CMD
+    # 令牌走 env：/proc/pid/cmdline 不可读（environ 仅属主）
     CMD="cd '${APP_DIR}' && exec env \
 HOME='${TRIM_PKGVAR}' \
 ZCODE_DATA_BASE_DIR='${DATA_DIR}' \
-'${node}' '${ENTRY}' --web \
-  --host 0.0.0.0 --port '${PORT}' \
-  --workspace '${ws}' --no-open \
-  --token '${token}'"
+PORT='${PORT}' \
+ZCODE_SERVER_HOST='0.0.0.0' \
+ZCODE_SERVER_WORKSPACE='${ws}' \
+ZCODE_WEB_STATIC_ROOT='${APP_DIR}/runtime/web' \
+ZCODE_SERVER_AUTH_TOKEN='${token}' \
+ZCODE_AGENT_SERVER_COMMAND='${node}' \
+ZCODE_AGENT_SERVER_ARGS_JSON='${agent_json}' \
+'${node}' '${ENTRY}'"
 
     if [ "$(id -un)" = "${TRIM_USERNAME}" ]; then
         bash -c "${CMD}" >> "${LOG_FILE}" 2>&1 &
