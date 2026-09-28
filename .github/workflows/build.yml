@@ -148,6 +148,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # gh 在无 git 仓库目录会报 fatal: not a git repository
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download fpk artifact
         uses: actions/download-artifact@v4
         with:
@@ -180,6 +185,7 @@ jobs:
       - name: Create or update Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.runtime.outputs.version }}
           UPSTREAM_SHA: ${{ needs.runtime.outputs.sha }}
         run: |
