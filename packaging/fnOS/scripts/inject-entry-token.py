@@ -24,7 +24,6 @@ SNIPPET = (
     "(function(){"
     "if(window.__ZCODE_FNOS_LOGIN__)return;"
     "window.__ZCODE_FNOS_LOGIN__=1;"
-    "function cookieGet(){try{var m=document.cookie.match(/(?:^|;\\s*)zcode_lite_token=([^;]*)/);return m?decodeURIComponent(m[1]):null;}catch(e){return null;}}"
     "function el(tag,css){var e=document.createElement(tag);if(css)e.style.cssText=css;return e;}"
     "var root=document.getElementById('zcode-fnos-login');"
     "if(!root){"
@@ -81,8 +80,7 @@ SNIPPET = (
     "showLogin('');"
     "}).catch(function(){showLogin('');});"
     "}"
-    "if(!cookieGet()){showLogin('');}"
-    "else{showStatus('正在验证访问权限…');check();}"
+    "showStatus('正在验证访问权限…');check();"
     "})();"
     "</script>"
 )
