@@ -1,6 +1,6 @@
 # Changelog
 
-## ZCode 3.14.3 · 飞牛 fnOS（SouL87 维护发行）
+## ZCode 3.14.3-3 · 飞牛 fnOS（SouL87 维护发行）
 
 > 上游 ZCode：[zai-org/ZCode](https://github.com/zai-org/ZCode) @ `29628c9a`（Z.ai）  
 > 打包初版：[Kasbuky-sudo/NAS-ZCode](https://github.com/Kasbuky-sudo/NAS-ZCode)  
@@ -68,6 +68,6 @@
 ### 安装
 
 1. 应用中心安装 Node.js v22（或随包自动安装）
-2. 下载 `zcode-3.14.3.fpk`（Release 附件，不是 Artifact zip）
+2. 下载 `zcode-3.14.3-3.fpk`（Release 附件，不是 Artifact zip）
 3. 手动安装 → 向导填写 ≥16 位随机访问令牌
 4. 桌面图标（网关）或 `http://NAS:8988`（登录框）进入
